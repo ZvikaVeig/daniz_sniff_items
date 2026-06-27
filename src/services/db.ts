@@ -64,7 +64,25 @@ db.exec(`
     first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(supplier_id, external_id)
   );
+
+  CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
 `);
+
+export function getAppSetting(key: string): string | undefined {
+  const row = db
+    .prepare("SELECT value FROM app_settings WHERE key = ?")
+    .get(key) as { value: string } | undefined;
+  return row?.value;
+}
+
+export function setAppSetting(key: string, value: string): void {
+  db.prepare(
+    "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+  ).run(key, value);
+}
 
 const supplierCount = db.prepare("SELECT COUNT(*) as count FROM suppliers").get() as { count: number };
 if (supplierCount.count === 0) {

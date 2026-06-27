@@ -1,6 +1,7 @@
 import cors from "cors";
 import express from "express";
 import cron from "node-cron";
+import monitoringRouter from "./api/routes/monitoring";
 import watchItemsRouter from "./api/routes/watchItems";
 import { authMiddleware } from "./api/middleware/auth";
 import { config } from "./config";
@@ -17,6 +18,7 @@ app.get("/health", (_req, res) => {
 });
 
 app.use("/api/watch-items", authMiddleware, watchItemsRouter);
+app.use("/api/monitoring", authMiddleware, monitoringRouter);
 
 app.post("/api/test-scrape", authMiddleware, async (_req, res) => {
   try {
@@ -31,7 +33,7 @@ app.post("/api/test-scrape", authMiddleware, async (_req, res) => {
 
 app.post("/api/run-check", authMiddleware, async (_req, res) => {
   try {
-    const result = await runSupplierCheck();
+    const result = await runSupplierCheck({ force: true });
     res.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Check failed";

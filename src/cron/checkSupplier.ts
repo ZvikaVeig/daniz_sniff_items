@@ -5,18 +5,33 @@ import {
   markProductSeen,
 } from "../services/db";
 import { findMatches } from "../services/matcher";
+import {
+  isMonitoringPaused,
+  saveLastCheckResult,
+} from "../services/monitoring";
 import { sendTelegramAlert } from "../services/notifier";
 
 let isRunning = false;
 
-export async function runSupplierCheck(): Promise<{
+export interface SupplierCheckResult {
   productsFound: number;
   matchesFound: number;
   alertsSent: number;
-}> {
+  skipped?: boolean;
+  reason?: string;
+}
+
+export async function runSupplierCheck(options?: {
+  force?: boolean;
+}): Promise<SupplierCheckResult> {
   if (isRunning) {
     console.log("[cron] Previous check still running, skipping");
-    return { productsFound: 0, matchesFound: 0, alertsSent: 0 };
+    return { productsFound: 0, matchesFound: 0, alertsSent: 0, skipped: true, reason: "busy" };
+  }
+
+  if (!options?.force && isMonitoringPaused()) {
+    console.log("[cron] Monitoring is paused, skipping");
+    return { productsFound: 0, matchesFound: 0, alertsSent: 0, skipped: true, reason: "paused" };
   }
 
   isRunning = true;
@@ -26,7 +41,9 @@ export async function runSupplierCheck(): Promise<{
     const watchItems = listActiveWatchItems();
     if (watchItems.length === 0) {
       console.log(`[cron] ${startedAt} — no active watch items`);
-      return { productsFound: 0, matchesFound: 0, alertsSent: 0 };
+      const result = { productsFound: 0, matchesFound: 0, alertsSent: 0 };
+      saveLastCheckResult(result);
+      return result;
     }
 
     const scraper = getScraperForSupplier();
@@ -54,13 +71,22 @@ export async function runSupplierCheck(): Promise<{
       `[cron] ${startedAt} — products=${products.length} matches=${matches.length} alerts=${alertsSent}`
     );
 
-    return {
+    const result = {
       productsFound: products.length,
       matchesFound: matches.length,
       alertsSent,
     };
+    saveLastCheckResult(result);
+    return result;
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Check failed";
     console.error("[cron] Check failed:", error);
+    saveLastCheckResult({
+      productsFound: 0,
+      matchesFound: 0,
+      alertsSent: 0,
+      error: message,
+    });
     throw error;
   } finally {
     isRunning = false;

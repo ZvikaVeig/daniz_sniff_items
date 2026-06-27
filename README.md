@@ -35,7 +35,10 @@ Authorization: Bearer <API_KEY>
 | PUT | `/api/watch-items/:id` | Update keywords or `is_active` |
 | DELETE | `/api/watch-items/:id` | Remove watch item |
 | POST | `/api/test-scrape` | Test supplier scrape (returns up to 20 products) |
-| POST | `/api/run-check` | Run check manually |
+| POST | `/api/run-check` | Run check manually (runs even when monitoring is paused) |
+| GET | `/api/monitoring/status` | Monitoring status: paused, cron, active items, last check |
+| POST | `/api/monitoring/pause` | Pause automatic cron checks |
+| POST | `/api/monitoring/resume` | Resume automatic cron checks |
 
 ## Deploy to Fly.io
 
