@@ -1,6 +1,7 @@
 import cors from "cors";
 import express from "express";
 import cron from "node-cron";
+import foundProductsRouter from "./api/routes/foundProducts";
 import monitoringRouter from "./api/routes/monitoring";
 import watchItemsRouter from "./api/routes/watchItems";
 import { authMiddleware } from "./api/middleware/auth";
@@ -19,6 +20,7 @@ app.get("/health", (_req, res) => {
 
 app.use("/api/watch-items", authMiddleware, watchItemsRouter);
 app.use("/api/monitoring", authMiddleware, monitoringRouter);
+app.use("/api/found-products", authMiddleware, foundProductsRouter);
 
 app.post("/api/test-scrape", authMiddleware, async (_req, res) => {
   try {

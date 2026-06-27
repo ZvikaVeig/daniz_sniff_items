@@ -29,6 +29,20 @@ export interface SeenProduct {
   first_seen_at: string;
 }
 
+export interface FoundProduct {
+  id: number;
+  supplier_id: number;
+  watch_item_id: number | null;
+  external_id: string;
+  title: string;
+  price: string | null;
+  image_url: string | null;
+  product_url: string;
+  watch_keywords: string | null;
+  first_found_at: string;
+  last_matched_at: string;
+}
+
 const dbDir = path.dirname(config.databasePath);
 if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true });
@@ -68,6 +82,21 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS app_settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS found_products (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    supplier_id INTEGER NOT NULL,
+    watch_item_id INTEGER,
+    external_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    price TEXT,
+    image_url TEXT,
+    product_url TEXT NOT NULL,
+    watch_keywords TEXT,
+    first_found_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_matched_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(supplier_id, external_id)
   );
 `);
 
@@ -171,4 +200,67 @@ export function listSeenProducts(limit = 50): SeenProduct[] {
   return db
     .prepare("SELECT * FROM seen_products ORDER BY first_seen_at DESC LIMIT ?")
     .all(limit) as SeenProduct[];
+}
+
+export function upsertFoundProduct(params: {
+  supplierId: number;
+  watchItemId: number;
+  externalId: string;
+  title: string;
+  price?: string;
+  imageUrl?: string;
+  productUrl: string;
+  watchKeywords: string;
+}): FoundProduct {
+  const existing = db
+    .prepare("SELECT * FROM found_products WHERE supplier_id = ? AND external_id = ?")
+    .get(params.supplierId, params.externalId) as FoundProduct | undefined;
+
+  if (existing) {
+    const imageUrl = params.imageUrl ?? existing.image_url ?? null;
+    db.prepare(
+      `UPDATE found_products
+       SET watch_item_id = ?, title = ?, price = ?, image_url = ?, product_url = ?,
+           watch_keywords = ?, last_matched_at = datetime('now')
+       WHERE id = ?`
+    ).run(
+      params.watchItemId,
+      params.title,
+      params.price ?? null,
+      imageUrl,
+      params.productUrl,
+      params.watchKeywords,
+      existing.id
+    );
+    return getFoundProduct(existing.id)!;
+  }
+
+  const result = db
+    .prepare(
+      `INSERT INTO found_products
+       (supplier_id, watch_item_id, external_id, title, price, image_url, product_url, watch_keywords)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      params.supplierId,
+      params.watchItemId,
+      params.externalId,
+      params.title,
+      params.price ?? null,
+      params.imageUrl ?? null,
+      params.productUrl,
+      params.watchKeywords
+    );
+
+  return getFoundProduct(Number(result.lastInsertRowid))!;
+}
+
+export function getFoundProduct(id: number): FoundProduct | undefined {
+  return db.prepare("SELECT * FROM found_products WHERE id = ?").get(id) as FoundProduct | undefined;
+}
+
+export function listRecentFoundProducts(limit = 10): FoundProduct[] {
+  return db
+    .prepare("SELECT * FROM found_products ORDER BY last_matched_at DESC LIMIT ?")
+    .all(limit) as FoundProduct[];
 }

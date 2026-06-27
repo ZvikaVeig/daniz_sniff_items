@@ -3,12 +3,14 @@ import {
   isProductSeen,
   listActiveWatchItems,
   markProductSeen,
+  upsertFoundProduct,
 } from "../services/db";
 import { findMatches } from "../services/matcher";
 import {
   isMonitoringPaused,
   saveLastCheckResult,
 } from "../services/monitoring";
+import { fetchProductImageUrl } from "../services/productImage";
 import { sendTelegramAlert } from "../services/notifier";
 
 let isRunning = false;
@@ -52,6 +54,22 @@ export async function runSupplierCheck(options?: {
 
     let alertsSent = 0;
     for (const { watchItem, product } of matches) {
+      let imageUrl = product.imageUrl;
+      if (!imageUrl) {
+        imageUrl = await fetchProductImageUrl(product.url);
+      }
+
+      upsertFoundProduct({
+        supplierId: watchItem.supplier_id,
+        watchItemId: watchItem.id,
+        externalId: product.externalId,
+        title: product.title,
+        price: product.price,
+        imageUrl,
+        productUrl: product.url,
+        watchKeywords: watchItem.keywords,
+      });
+
       if (isProductSeen(watchItem.supplier_id, product.externalId)) {
         continue;
       }

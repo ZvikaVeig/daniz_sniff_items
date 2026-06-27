@@ -39,6 +39,7 @@ Authorization: Bearer <API_KEY>
 | GET | `/api/monitoring/status` | Monitoring status: paused, cron, active items, last check |
 | POST | `/api/monitoring/pause` | Pause automatic cron checks |
 | POST | `/api/monitoring/resume` | Resume automatic cron checks |
+| GET | `/api/found-products` | Last matched products (default 10; `?limit=10`) |
 
 ## Deploy to Fly.io
 
