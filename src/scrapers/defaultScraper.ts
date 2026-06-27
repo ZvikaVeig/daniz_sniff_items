@@ -1,18 +1,14 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
-import { config } from "../config";
 import { ScrapedProduct, SupplierScraper } from "./types";
 
-/**
- * Default HTML scraper — update selectors once supplier site details are provided.
- * Set SUPPLIER_BASE_URL to the catalog/listing page URL.
- */
+/** Generic HTML scraper for future suppliers. */
 export class DefaultHtmlScraper implements SupplierScraper {
-  constructor(private baseUrl: string = config.supplierBaseUrl) {}
+  constructor(private baseUrl: string) {}
 
   async fetchProducts(): Promise<ScrapedProduct[]> {
     if (!this.baseUrl) {
-      throw new Error("SUPPLIER_BASE_URL is not configured");
+      throw new Error("Supplier base_url is not configured");
     }
 
     const response = await axios.get(this.baseUrl, {

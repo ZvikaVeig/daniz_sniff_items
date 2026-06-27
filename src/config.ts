@@ -16,7 +16,6 @@ export const config = {
   apiKey: requireEnv("API_KEY"),
   telegramBotToken: process.env.TELEGRAM_BOT_TOKEN ?? "",
   telegramChatId: process.env.TELEGRAM_CHAT_ID ?? "",
-  supplierBaseUrl: process.env.SUPPLIER_BASE_URL ?? "",
   databasePath: process.env.DATABASE_PATH ?? path.join(process.cwd(), "data", "sniff.db"),
   cronSchedule: process.env.CRON_SCHEDULE ?? "*/1 * * * *",
   cronEnabled: process.env.CRON_ENABLED !== "false",

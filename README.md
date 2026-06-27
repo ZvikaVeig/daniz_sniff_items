@@ -15,7 +15,6 @@ Monitor a supplier website for luxury bags and send Telegram alerts when matchin
 | `API_KEY` | Yes | Secret for dashboard API calls |
 | `TELEGRAM_BOT_TOKEN` | For alerts | From @BotFather |
 | `TELEGRAM_CHAT_ID` | For alerts | Your chat or group ID |
-| `SUPPLIER_BASE_URL` | For scraping | Supplier catalog page URL |
 | `DATABASE_PATH` | No | Default: `./data/sniff.db` |
 | `CRON_SCHEDULE` | No | Default: `*/1 * * * *` (every minute) |
 | `CRON_ENABLED` | No | Default: `true` |
@@ -44,10 +43,14 @@ Authorization: Bearer <API_KEY>
 fly auth login
 fly launch          # if not already created
 fly volumes create sniff_data --size 1 --region fra
-fly secrets set API_KEY=... TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... SUPPLIER_BASE_URL=...
+fly secrets set API_KEY=... TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=...
 fly deploy
 ```
 
-## Next step
+## Supplier (Brand Off)
 
-Update `src/scrapers/defaultScraper.ts` with the correct HTML selectors (or API endpoint) for your supplier site.
+The catalog URL is hardcoded in `src/scrapers/brandoffScraper.ts`:
+
+`https://brandoffbuyingclub.com/collections/chanel-bags-collection`
+
+Scraping uses Shopify SSR embedded JSON (`ShopifyAnalytics.meta.products`) with DOM fallback.

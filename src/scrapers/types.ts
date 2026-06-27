@@ -3,6 +3,7 @@ export interface ScrapedProduct {
   title: string;
   url: string;
   price?: string;
+  sku?: string;
 }
 
 export interface SupplierScraper {

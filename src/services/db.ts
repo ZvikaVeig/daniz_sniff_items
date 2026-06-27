@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 import { config } from "../config";
+import { BRANDOFF_CHANEL_BAGS_URL } from "../scrapers/brandoffScraper";
 
 export interface Supplier {
   id: number;
@@ -69,7 +70,13 @@ const supplierCount = db.prepare("SELECT COUNT(*) as count FROM suppliers").get(
 if (supplierCount.count === 0) {
   db.prepare(
     "INSERT INTO suppliers (name, base_url, scraper_type) VALUES (?, ?, ?)"
-  ).run("default", config.supplierBaseUrl || "https://example.com", "html");
+  ).run("brandoff", BRANDOFF_CHANEL_BAGS_URL, "brandoff");
+} else {
+  // Upgrade legacy placeholder supplier from initial scaffold
+  db.prepare(
+    `UPDATE suppliers SET name = 'brandoff', base_url = ?, scraper_type = 'brandoff'
+     WHERE id = 1 AND (scraper_type = 'html' OR base_url LIKE '%example.com%')`
+  ).run(BRANDOFF_CHANEL_BAGS_URL);
 }
 
 export function getDefaultSupplier(): Supplier {
