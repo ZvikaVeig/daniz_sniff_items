@@ -31,10 +31,10 @@ Authorization: Bearer <API_KEY>
 |--------|----------|-------------|
 | GET | `/health` | Health check |
 | GET | `/api/watch-items` | List watch items |
-| POST | `/api/watch-items` | Add: `{ "keywords": "Chanel Classic Flap" }` |
-| PUT | `/api/watch-items/:id` | Update keywords or `is_active` |
+| POST | `/api/watch-items` | Add: `{ "keywords": "...", "catalogUrl": "https://..." }` |
+| PUT | `/api/watch-items/:id` | Update keywords, `catalogUrl`, or `is_active` |
 | DELETE | `/api/watch-items/:id` | Remove watch item |
-| POST | `/api/test-scrape` | Test supplier scrape (returns up to 20 products) |
+| POST | `/api/test-scrape` | Test scrape: `{ "catalogUrl": "https://..." }` |
 | POST | `/api/run-check` | Run check manually (runs even when monitoring is paused) |
 | GET | `/api/monitoring/status` | Monitoring status: paused, cron, active items, last check |
 | POST | `/api/monitoring/pause` | Pause automatic cron checks |
@@ -51,10 +51,13 @@ fly secrets set API_KEY=... TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=...
 fly deploy
 ```
 
-## Supplier (Brand Off)
+## Supplier URLs
 
-The catalog URL is hardcoded in `src/scrapers/brandoffScraper.ts`:
+Each watch item has its own `catalogUrl` (collection page to scrape).
+The dashboard (Base44) sends the URL when adding or editing a watch item.
 
+Brand Off Shopify sites use the `brandoff` scraper automatically when the hostname is `brandoffbuyingclub.com`.
+Other URLs fall back to generic HTML scraping.
+
+Example:
 `https://brandoffbuyingclub.com/collections/chanel-bags-collection`
-
-Scraping uses Shopify SSR embedded JSON (`ShopifyAnalytics.meta.products`) with DOM fallback.

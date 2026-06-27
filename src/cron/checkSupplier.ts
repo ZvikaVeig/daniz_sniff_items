@@ -1,9 +1,10 @@
-import { getScraperForSupplier } from "../scrapers";
+import { getScraperForCatalogUrl } from "../scrapers";
 import {
   isProductSeen,
   listActiveWatchItems,
   markProductSeen,
   upsertFoundProduct,
+  WatchItem,
 } from "../services/db";
 import { findMatches } from "../services/matcher";
 import {
@@ -19,8 +20,21 @@ export interface SupplierCheckResult {
   productsFound: number;
   matchesFound: number;
   alertsSent: number;
+  catalogsChecked: number;
   skipped?: boolean;
   reason?: string;
+}
+
+function groupWatchItemsByCatalogUrl(watchItems: WatchItem[]): Map<string, WatchItem[]> {
+  const groups = new Map<string, WatchItem[]>();
+
+  for (const item of watchItems) {
+    const existing = groups.get(item.catalog_url) ?? [];
+    existing.push(item);
+    groups.set(item.catalog_url, existing);
+  }
+
+  return groups;
 }
 
 export async function runSupplierCheck(options?: {
@@ -28,12 +42,26 @@ export async function runSupplierCheck(options?: {
 }): Promise<SupplierCheckResult> {
   if (isRunning) {
     console.log("[cron] Previous check still running, skipping");
-    return { productsFound: 0, matchesFound: 0, alertsSent: 0, skipped: true, reason: "busy" };
+    return {
+      productsFound: 0,
+      matchesFound: 0,
+      alertsSent: 0,
+      catalogsChecked: 0,
+      skipped: true,
+      reason: "busy",
+    };
   }
 
   if (!options?.force && isMonitoringPaused()) {
     console.log("[cron] Monitoring is paused, skipping");
-    return { productsFound: 0, matchesFound: 0, alertsSent: 0, skipped: true, reason: "paused" };
+    return {
+      productsFound: 0,
+      matchesFound: 0,
+      alertsSent: 0,
+      catalogsChecked: 0,
+      skipped: true,
+      reason: "paused",
+    };
   }
 
   isRunning = true;
@@ -43,56 +71,69 @@ export async function runSupplierCheck(options?: {
     const watchItems = listActiveWatchItems();
     if (watchItems.length === 0) {
       console.log(`[cron] ${startedAt} — no active watch items`);
-      const result = { productsFound: 0, matchesFound: 0, alertsSent: 0 };
+      const result = { productsFound: 0, matchesFound: 0, alertsSent: 0, catalogsChecked: 0 };
       saveLastCheckResult(result);
       return result;
     }
 
-    const scraper = getScraperForSupplier();
-    const products = await scraper.fetchProducts();
-    const matches = findMatches(products, watchItems);
-
+    const groups = groupWatchItemsByCatalogUrl(watchItems);
+    let productsFound = 0;
+    let matchesFound = 0;
     let alertsSent = 0;
-    for (const { watchItem, product } of matches) {
-      let imageUrl = product.imageUrl;
-      if (!imageUrl) {
-        imageUrl = await fetchProductImageUrl(product.url);
+
+    for (const [catalogUrl, itemsForCatalog] of groups) {
+      const scraper = getScraperForCatalogUrl(catalogUrl);
+      const products = await scraper.fetchProducts();
+      productsFound += products.length;
+
+      const matches = findMatches(products, itemsForCatalog);
+      matchesFound += matches.length;
+
+      for (const { watchItem, product } of matches) {
+        let imageUrl = product.imageUrl;
+        if (!imageUrl) {
+          imageUrl = await fetchProductImageUrl(product.url);
+        }
+
+        upsertFoundProduct({
+          supplierId: watchItem.supplier_id,
+          watchItemId: watchItem.id,
+          externalId: product.externalId,
+          title: product.title,
+          price: product.price,
+          imageUrl,
+          productUrl: product.url,
+          watchKeywords: watchItem.keywords,
+          catalogUrl: watchItem.catalog_url,
+        });
+
+        if (isProductSeen(watchItem.supplier_id, product.externalId)) {
+          continue;
+        }
+
+        await sendTelegramAlert(watchItem, product);
+        markProductSeen(
+          watchItem.supplier_id,
+          product.externalId,
+          product.url,
+          product.title
+        );
+        alertsSent++;
+        console.log(
+          `[cron] Alert sent: "${product.title}" for watch "${watchItem.keywords}" (${catalogUrl})`
+        );
       }
-
-      upsertFoundProduct({
-        supplierId: watchItem.supplier_id,
-        watchItemId: watchItem.id,
-        externalId: product.externalId,
-        title: product.title,
-        price: product.price,
-        imageUrl,
-        productUrl: product.url,
-        watchKeywords: watchItem.keywords,
-      });
-
-      if (isProductSeen(watchItem.supplier_id, product.externalId)) {
-        continue;
-      }
-
-      await sendTelegramAlert(watchItem, product);
-      markProductSeen(
-        watchItem.supplier_id,
-        product.externalId,
-        product.url,
-        product.title
-      );
-      alertsSent++;
-      console.log(`[cron] Alert sent: "${product.title}" for watch "${watchItem.keywords}"`);
     }
 
     console.log(
-      `[cron] ${startedAt} — products=${products.length} matches=${matches.length} alerts=${alertsSent}`
+      `[cron] ${startedAt} — catalogs=${groups.size} products=${productsFound} matches=${matchesFound} alerts=${alertsSent}`
     );
 
     const result = {
-      productsFound: products.length,
-      matchesFound: matches.length,
+      productsFound,
+      matchesFound,
       alertsSent,
+      catalogsChecked: groups.size,
     };
     saveLastCheckResult(result);
     return result;
@@ -103,6 +144,7 @@ export async function runSupplierCheck(options?: {
       productsFound: 0,
       matchesFound: 0,
       alertsSent: 0,
+      catalogsChecked: 0,
       error: message,
     });
     throw error;

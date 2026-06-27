@@ -1,4 +1,4 @@
-import { getAppSetting, listActiveWatchItems, setAppSetting } from "./db";
+import { getAppSetting, listActiveWatchItems, listCatalogUrlSummaries, setAppSetting } from "./db";
 
 const SETTINGS_KEY_PAUSED = "monitoring_paused";
 const SETTINGS_KEY_LAST_CHECK = "last_check";
@@ -8,6 +8,7 @@ export interface LastCheckResult {
   productsFound: number;
   matchesFound: number;
   alertsSent: number;
+  catalogsChecked?: number;
   error?: string;
 }
 
@@ -27,6 +28,7 @@ export function saveLastCheckResult(
     productsFound: result.productsFound,
     matchesFound: result.matchesFound,
     alertsSent: result.alertsSent,
+    ...(result.catalogsChecked !== undefined ? { catalogsChecked: result.catalogsChecked } : {}),
     ...(result.error ? { error: result.error } : {}),
   };
   setAppSetting(SETTINGS_KEY_LAST_CHECK, JSON.stringify(payload));
@@ -49,6 +51,7 @@ export function getMonitoringStatus(cronEnabled: boolean, cronSchedule: string) 
     cronEnabled,
     cronSchedule,
     activeWatchItems: listActiveWatchItems().length,
+    catalogUrls: listCatalogUrlSummaries(),
     lastCheck: getLastCheckResult(),
   };
 }

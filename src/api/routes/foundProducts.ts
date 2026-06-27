@@ -20,6 +20,7 @@ function formatFoundProduct(item: {
   image_url: string | null;
   product_url: string;
   watch_keywords: string | null;
+  catalog_url: string | null;
   first_found_at: string;
   last_matched_at: string;
 }) {
@@ -33,6 +34,7 @@ function formatFoundProduct(item: {
     imageUrl: item.image_url,
     url: item.product_url,
     watchKeywords: item.watch_keywords,
+    catalogUrl: item.catalog_url,
     firstFoundAt: item.first_found_at,
     lastMatchedAt: item.last_matched_at,
   };

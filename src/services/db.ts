@@ -16,6 +16,7 @@ export interface WatchItem {
   id: number;
   supplier_id: number;
   keywords: string;
+  catalog_url: string;
   is_active: number;
   created_at: string;
 }
@@ -39,6 +40,7 @@ export interface FoundProduct {
   image_url: string | null;
   product_url: string;
   watch_keywords: string | null;
+  catalog_url: string | null;
   first_found_at: string;
   last_matched_at: string;
 }
@@ -64,6 +66,7 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     supplier_id INTEGER NOT NULL DEFAULT 1,
     keywords TEXT NOT NULL,
+    catalog_url TEXT NOT NULL DEFAULT '',
     is_active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
@@ -94,11 +97,34 @@ db.exec(`
     image_url TEXT,
     product_url TEXT NOT NULL,
     watch_keywords TEXT,
+    catalog_url TEXT,
     first_found_at TEXT NOT NULL DEFAULT (datetime('now')),
     last_matched_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(supplier_id, external_id)
   );
 `);
+
+migrateWatchItemsCatalogUrl();
+migrateFoundProductsCatalogUrl();
+
+function migrateWatchItemsCatalogUrl(): void {
+  const columns = db.prepare("PRAGMA table_info(watch_items)").all() as { name: string }[];
+  if (!columns.some((col) => col.name === "catalog_url")) {
+    db.exec(`ALTER TABLE watch_items ADD COLUMN catalog_url TEXT NOT NULL DEFAULT ''`);
+  }
+
+  db.prepare(
+    `UPDATE watch_items SET catalog_url = ?
+     WHERE catalog_url IS NULL OR catalog_url = ''`
+  ).run(BRANDOFF_CHANEL_BAGS_URL);
+}
+
+function migrateFoundProductsCatalogUrl(): void {
+  const columns = db.prepare("PRAGMA table_info(found_products)").all() as { name: string }[];
+  if (!columns.some((col) => col.name === "catalog_url")) {
+    db.exec(`ALTER TABLE found_products ADD COLUMN catalog_url TEXT`);
+  }
+}
 
 export function getAppSetting(key: string): string | undefined {
   const row = db
@@ -142,28 +168,31 @@ export function getWatchItem(id: number): WatchItem | undefined {
   return db.prepare("SELECT * FROM watch_items WHERE id = ?").get(id) as WatchItem | undefined;
 }
 
-export function createWatchItem(keywords: string, supplierId = 1): WatchItem {
+export function createWatchItem(
+  keywords: string,
+  catalogUrl: string,
+  supplierId = 1
+): WatchItem {
   const result = db
-    .prepare("INSERT INTO watch_items (supplier_id, keywords) VALUES (?, ?)")
-    .run(supplierId, keywords.trim());
+    .prepare("INSERT INTO watch_items (supplier_id, keywords, catalog_url) VALUES (?, ?, ?)")
+    .run(supplierId, keywords.trim(), catalogUrl);
   return getWatchItem(Number(result.lastInsertRowid))!;
 }
 
 export function updateWatchItem(
   id: number,
-  updates: { keywords?: string; is_active?: boolean }
+  updates: { keywords?: string; catalogUrl?: string; is_active?: boolean }
 ): WatchItem | undefined {
   const existing = getWatchItem(id);
   if (!existing) return undefined;
 
   const keywords = updates.keywords?.trim() ?? existing.keywords;
+  const catalogUrl = updates.catalogUrl ?? existing.catalog_url;
   const isActive = updates.is_active !== undefined ? (updates.is_active ? 1 : 0) : existing.is_active;
 
-  db.prepare("UPDATE watch_items SET keywords = ?, is_active = ? WHERE id = ?").run(
-    keywords,
-    isActive,
-    id
-  );
+  db.prepare(
+    "UPDATE watch_items SET keywords = ?, catalog_url = ?, is_active = ? WHERE id = ?"
+  ).run(keywords, catalogUrl, isActive, id);
   return getWatchItem(id);
 }
 
@@ -176,6 +205,31 @@ export function listActiveWatchItems(): WatchItem[] {
   return db
     .prepare("SELECT * FROM watch_items WHERE is_active = 1 ORDER BY created_at DESC")
     .all() as WatchItem[];
+}
+
+export interface CatalogUrlSummary {
+  catalogUrl: string;
+  itemCount: number;
+  activeCount: number;
+}
+
+export function listCatalogUrlSummaries(): CatalogUrlSummary[] {
+  const rows = db
+    .prepare(
+      `SELECT catalog_url as catalogUrl,
+              COUNT(*) as itemCount,
+              SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as activeCount
+       FROM watch_items
+       GROUP BY catalog_url
+       ORDER BY catalog_url ASC`
+    )
+    .all() as { catalogUrl: string; itemCount: number; activeCount: number }[];
+
+  return rows.map((row) => ({
+    catalogUrl: row.catalogUrl,
+    itemCount: row.itemCount,
+    activeCount: row.activeCount,
+  }));
 }
 
 export function isProductSeen(supplierId: number, externalId: string): boolean {
@@ -211,6 +265,7 @@ export function upsertFoundProduct(params: {
   imageUrl?: string;
   productUrl: string;
   watchKeywords: string;
+  catalogUrl?: string;
 }): FoundProduct {
   const existing = db
     .prepare("SELECT * FROM found_products WHERE supplier_id = ? AND external_id = ?")
@@ -221,7 +276,7 @@ export function upsertFoundProduct(params: {
     db.prepare(
       `UPDATE found_products
        SET watch_item_id = ?, title = ?, price = ?, image_url = ?, product_url = ?,
-           watch_keywords = ?, last_matched_at = datetime('now')
+           watch_keywords = ?, catalog_url = ?, last_matched_at = datetime('now')
        WHERE id = ?`
     ).run(
       params.watchItemId,
@@ -230,6 +285,7 @@ export function upsertFoundProduct(params: {
       imageUrl,
       params.productUrl,
       params.watchKeywords,
+      params.catalogUrl ?? existing.catalog_url ?? null,
       existing.id
     );
     return getFoundProduct(existing.id)!;
@@ -238,8 +294,8 @@ export function upsertFoundProduct(params: {
   const result = db
     .prepare(
       `INSERT INTO found_products
-       (supplier_id, watch_item_id, external_id, title, price, image_url, product_url, watch_keywords)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+       (supplier_id, watch_item_id, external_id, title, price, image_url, product_url, watch_keywords, catalog_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       params.supplierId,
@@ -249,7 +305,8 @@ export function upsertFoundProduct(params: {
       params.price ?? null,
       params.imageUrl ?? null,
       params.productUrl,
-      params.watchKeywords
+      params.watchKeywords,
+      params.catalogUrl ?? null
     );
 
   return getFoundProduct(Number(result.lastInsertRowid))!;

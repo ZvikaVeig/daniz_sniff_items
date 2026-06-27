@@ -7,7 +7,7 @@ import watchItemsRouter from "./api/routes/watchItems";
 import { authMiddleware } from "./api/middleware/auth";
 import { config } from "./config";
 import { runSupplierCheck } from "./cron/checkSupplier";
-import { getScraperForSupplier } from "./scrapers";
+import { getScraperForCatalogUrl } from "./scrapers";
 
 const app = express();
 
@@ -22,11 +22,17 @@ app.use("/api/watch-items", authMiddleware, watchItemsRouter);
 app.use("/api/monitoring", authMiddleware, monitoringRouter);
 app.use("/api/found-products", authMiddleware, foundProductsRouter);
 
-app.post("/api/test-scrape", authMiddleware, async (_req, res) => {
+app.post("/api/test-scrape", authMiddleware, async (req, res) => {
   try {
-    const scraper = getScraperForSupplier();
+    const { catalogUrl } = req.body as { catalogUrl?: string };
+    if (!catalogUrl?.trim()) {
+      res.status(400).json({ error: "catalogUrl is required" });
+      return;
+    }
+
+    const scraper = getScraperForCatalogUrl(catalogUrl.trim());
     const products = await scraper.fetchProducts();
-    res.json({ count: products.length, products: products.slice(0, 20) });
+    res.json({ count: products.length, catalogUrl, products: products.slice(0, 20) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Scrape failed";
     res.status(500).json({ error: message });
