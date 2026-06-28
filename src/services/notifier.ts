@@ -3,6 +3,23 @@ import { config } from "../config";
 import { ScrapedProduct } from "../scrapers/types";
 import { WatchItem } from "./db";
 
+export async function sendTelegramMessage(
+  text: string,
+  options?: { disableWebPagePreview?: boolean }
+): Promise<void> {
+  if (!config.telegramBotToken || !config.telegramChatId) {
+    console.warn("[telegram] TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set — skipping message");
+    return;
+  }
+
+  const url = `https://api.telegram.org/bot${config.telegramBotToken}/sendMessage`;
+  await axios.post(url, {
+    chat_id: config.telegramChatId,
+    text,
+    disable_web_page_preview: options?.disableWebPagePreview ?? true,
+  });
+}
+
 export async function sendTelegramAlert(
   watchItem: WatchItem,
   product: ScrapedProduct
@@ -21,10 +38,5 @@ export async function sendTelegramAlert(
     product.url,
   ].join("\n");
 
-  const url = `https://api.telegram.org/bot${config.telegramBotToken}/sendMessage`;
-  await axios.post(url, {
-    chat_id: config.telegramChatId,
-    text,
-    disable_web_page_preview: false,
-  });
+  await sendTelegramMessage(text, { disableWebPagePreview: false });
 }

@@ -6,6 +6,7 @@ import monitoringRouter from "./api/routes/monitoring";
 import watchItemsRouter from "./api/routes/watchItems";
 import { authMiddleware } from "./api/middleware/auth";
 import { config } from "./config";
+import { sendDailyDigest } from "./cron/dailyDigest";
 import { runSupplierCheck } from "./cron/checkSupplier";
 import { getScraperForCatalogUrl } from "./scrapers";
 
@@ -67,4 +68,26 @@ if (config.cronEnabled) {
   console.log(`[cron] Scheduled: ${config.cronSchedule}`);
 } else {
   console.log("[cron] Disabled (CRON_ENABLED=false)");
+}
+
+if (config.dailyDigestEnabled) {
+  if (!cron.validate(config.dailyDigestCron)) {
+    throw new Error(`Invalid DAILY_DIGEST_CRON: ${config.dailyDigestCron}`);
+  }
+
+  cron.schedule(
+    config.dailyDigestCron,
+    () => {
+      sendDailyDigest().catch((err) => {
+        console.error("[daily-digest] Unhandled error:", err);
+      });
+    },
+    { timezone: config.dailyDigestTimezone }
+  );
+
+  console.log(
+    `[daily-digest] Scheduled: ${config.dailyDigestCron} (${config.dailyDigestTimezone})`
+  );
+} else {
+  console.log("[daily-digest] Disabled (DAILY_DIGEST_ENABLED=false)");
 }

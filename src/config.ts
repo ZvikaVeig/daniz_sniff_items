@@ -19,4 +19,8 @@ export const config = {
   databasePath: process.env.DATABASE_PATH ?? path.join(process.cwd(), "data", "sniff.db"),
   cronSchedule: process.env.CRON_SCHEDULE ?? "*/1 * * * *",
   cronEnabled: process.env.CRON_ENABLED !== "false",
+  dailyDigestEnabled: process.env.DAILY_DIGEST_ENABLED !== "false",
+  dailyDigestCron: process.env.DAILY_DIGEST_CRON ?? "0 9 * * *",
+  dailyDigestTimezone: process.env.DAILY_DIGEST_TIMEZONE ?? "Asia/Jerusalem",
+  dailyDigestRecipientName: process.env.DAILY_DIGEST_RECIPIENT_NAME ?? "Dani",
 };

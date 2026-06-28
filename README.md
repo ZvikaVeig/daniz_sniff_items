@@ -18,6 +18,10 @@ Monitor a supplier website for luxury bags and send Telegram alerts when matchin
 | `DATABASE_PATH` | No | Default: `./data/sniff.db` |
 | `CRON_SCHEDULE` | No | Default: `*/1 * * * *` (every minute) |
 | `CRON_ENABLED` | No | Default: `true` |
+| `DAILY_DIGEST_ENABLED` | No | Default: `true` — morning Telegram status |
+| `DAILY_DIGEST_CRON` | No | Default: `0 9 * * *` (9:00 daily) |
+| `DAILY_DIGEST_TIMEZONE` | No | Default: `Asia/Jerusalem` |
+| `DAILY_DIGEST_RECIPIENT_NAME` | No | Default: `Dani` — name in daily message |
 
 ## API
 
