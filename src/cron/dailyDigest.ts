@@ -1,4 +1,3 @@
-import { config } from "../config";
 import { listActiveWatchItems } from "../services/db";
 import { isMonitoringPaused } from "../services/monitoring";
 import { sendTelegramMessage } from "../services/notifier";
@@ -18,14 +17,11 @@ function groupWatchItemsByCatalogUrl(
 }
 
 export function buildDailyDigestMessage(): string {
-  const name = config.dailyDigestRecipientName;
   const activeItems = listActiveWatchItems();
   const paused = isMonitoringPaused();
   const groups = groupWatchItemsByCatalogUrl(activeItems);
 
   const lines = [
-    `היי ${name} 💕`,
-    "",
     "אל תדאגי, אני עובד בשבילך 24/7 ומחפש לך את התיקים שאת רוצה... 🤗✨💖",
     "",
   ];
