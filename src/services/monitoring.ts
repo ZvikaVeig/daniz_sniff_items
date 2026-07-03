@@ -1,4 +1,6 @@
-import { getAppSetting, listActiveWatchItems, listCatalogUrlSummaries, setAppSetting } from "./db";
+import { config } from "../config";
+import { getCatalogDisplayName, normalizeCatalogBaseUrl } from "../scrapers/catalogs";
+import { getAppSetting, listActiveWatchItems, setAppSetting } from "./db";
 
 const SETTINGS_KEY_PAUSED = "monitoring_paused";
 const SETTINGS_KEY_LAST_CHECK = "last_check";
@@ -8,6 +10,7 @@ export interface LastCheckResult {
   productsFound: number;
   matchesFound: number;
   alertsSent: number;
+  newItems?: number;
   catalogsChecked?: number;
   error?: string;
 }
@@ -28,6 +31,7 @@ export function saveLastCheckResult(
     productsFound: result.productsFound,
     matchesFound: result.matchesFound,
     alertsSent: result.alertsSent,
+    ...(result.newItems !== undefined ? { newItems: result.newItems } : {}),
     ...(result.catalogsChecked !== undefined ? { catalogsChecked: result.catalogsChecked } : {}),
     ...(result.error ? { error: result.error } : {}),
   };
@@ -45,13 +49,25 @@ export function getLastCheckResult(): LastCheckResult | null {
   }
 }
 
+export function getMonitoredSites() {
+  return config.catalogUrls.map((url) => {
+    const cleanUrl = normalizeCatalogBaseUrl(url);
+    return {
+      name: getCatalogDisplayName(cleanUrl),
+      url: cleanUrl,
+    };
+  });
+}
+
 export function getMonitoringStatus(cronEnabled: boolean, cronSchedule: string) {
   return {
     paused: isMonitoringPaused(),
     cronEnabled,
     cronSchedule,
     activeWatchItems: listActiveWatchItems().length,
-    catalogUrls: listCatalogUrlSummaries(),
+    monitoredSites: getMonitoredSites(),
+    maxPagesPerSite: config.scrapeMaxPages,
+    newItemsThreshold: config.newItemsThreshold,
     lastCheck: getLastCheckResult(),
   };
 }

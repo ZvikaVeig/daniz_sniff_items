@@ -102,6 +102,14 @@ db.exec(`
     last_matched_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(supplier_id, external_id)
   );
+
+  CREATE TABLE IF NOT EXISTS catalog_products (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    catalog_url TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(catalog_url, external_id)
+  );
 `);
 
 migrateWatchItemsCatalogUrl();
@@ -112,11 +120,7 @@ function migrateWatchItemsCatalogUrl(): void {
   if (!columns.some((col) => col.name === "catalog_url")) {
     db.exec(`ALTER TABLE watch_items ADD COLUMN catalog_url TEXT NOT NULL DEFAULT ''`);
   }
-
-  db.prepare(
-    `UPDATE watch_items SET catalog_url = ?
-     WHERE catalog_url IS NULL OR catalog_url = ''`
-  ).run(BRANDOFF_CHANEL_BAGS_URL);
+  // catalog_url is now optional: keywords are matched against all monitored sites.
 }
 
 function migrateFoundProductsCatalogUrl(): void {
@@ -207,31 +211,6 @@ export function listActiveWatchItems(): WatchItem[] {
     .all() as WatchItem[];
 }
 
-export interface CatalogUrlSummary {
-  catalogUrl: string;
-  itemCount: number;
-  activeCount: number;
-}
-
-export function listCatalogUrlSummaries(): CatalogUrlSummary[] {
-  const rows = db
-    .prepare(
-      `SELECT catalog_url as catalogUrl,
-              COUNT(*) as itemCount,
-              SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as activeCount
-       FROM watch_items
-       GROUP BY catalog_url
-       ORDER BY catalog_url ASC`
-    )
-    .all() as { catalogUrl: string; itemCount: number; activeCount: number }[];
-
-  return rows.map((row) => ({
-    catalogUrl: row.catalogUrl,
-    itemCount: row.itemCount,
-    activeCount: row.activeCount,
-  }));
-}
-
 export function isProductSeen(supplierId: number, externalId: string): boolean {
   const row = db
     .prepare("SELECT id FROM seen_products WHERE supplier_id = ? AND external_id = ?")
@@ -320,4 +299,35 @@ export function listRecentFoundProducts(limit = 10): FoundProduct[] {
   return db
     .prepare("SELECT * FROM found_products ORDER BY last_matched_at DESC LIMIT ?")
     .all(limit) as FoundProduct[];
+}
+
+/**
+ * Record every product currently seen on a catalog page.
+ * Returns how many were brand-new, and whether the catalog had no prior records
+ * (first run) so the caller can seed silently instead of alerting.
+ */
+export function recordCatalogProducts(
+  catalogUrl: string,
+  externalIds: string[]
+): { newCount: number; wasEmpty: boolean } {
+  const existing = db
+    .prepare("SELECT COUNT(*) as count FROM catalog_products WHERE catalog_url = ?")
+    .get(catalogUrl) as { count: number };
+  const wasEmpty = existing.count === 0;
+
+  const insert = db.prepare(
+    "INSERT OR IGNORE INTO catalog_products (catalog_url, external_id) VALUES (?, ?)"
+  );
+
+  const insertMany = db.transaction((ids: string[]) => {
+    let inserted = 0;
+    for (const id of ids) {
+      const result = insert.run(catalogUrl, id);
+      inserted += result.changes;
+    }
+    return inserted;
+  });
+
+  const newCount = insertMany(externalIds);
+  return { newCount, wasEmpty };
 }
