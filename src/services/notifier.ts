@@ -43,3 +43,21 @@ export async function sendTelegramAlert(
 
   await sendTelegramMessage(text, { disableWebPagePreview: false });
 }
+
+export async function sendBulkNewItemsAlert(
+  catalogUrl: string,
+  newItemsCount: number
+): Promise<void> {
+  if (!config.telegramBotToken || !config.telegramChatId) {
+    console.warn("[telegram] TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set — skipping bulk alert");
+    return;
+  }
+
+  const text = [
+    `${newItemsCount} new items detected in a catalog!`,
+    "",
+    catalogUrl,
+  ].join("\n");
+
+  await sendTelegramMessage(text, { disableWebPagePreview: false });
+}

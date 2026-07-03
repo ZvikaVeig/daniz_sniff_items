@@ -3,17 +3,17 @@ import {
   createWatchItem,
   deleteWatchItem,
   getWatchItem,
+  listCatalogUrlSummaries,
   listWatchItems,
   updateWatchItem,
 } from "../../services/db";
-import { getMonitoredSites } from "../../services/monitoring";
 import { normalizeCatalogUrl } from "../../utils/catalogUrl";
 
 const router = Router();
 
 router.get("/", (_req, res) => {
   const items = listWatchItems().map(formatWatchItem);
-  res.json({ items, monitoredSites: getMonitoredSites() });
+  res.json({ items, catalogUrls: listCatalogUrlSummaries() });
 });
 
 router.get("/:id", (req, res) => {
@@ -44,9 +44,13 @@ router.post("/", (req, res) => {
     return;
   }
 
+  if (!catalogUrl?.trim()) {
+    res.status(400).json({ error: "catalogUrl is required" });
+    return;
+  }
+
   try {
-    // catalogUrl is optional: keywords are matched against all monitored sites.
-    const normalizedUrl = catalogUrl?.trim() ? normalizeCatalogUrl(catalogUrl) : "";
+    const normalizedUrl = normalizeCatalogUrl(catalogUrl);
     const item = createWatchItem(keywords, normalizedUrl, supplierId ?? 1);
     res.status(201).json({ item: formatWatchItem(item) });
   } catch (error) {

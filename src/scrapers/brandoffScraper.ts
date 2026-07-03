@@ -1,17 +1,12 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
-import { buildCatalogPageUrl, buildProductsJsonUrl } from "./catalogs";
 import { ScrapedProduct, SupplierScraper } from "./types";
 
-/** Brand Off — Chanel bags collection (Shopify SSR). Kept for legacy DB migration. */
+/** Brand Off — Chanel bags collection (Shopify SSR). */
 export const BRANDOFF_CHANEL_BAGS_URL =
   "https://brandoffbuyingclub.com/collections/chanel-bags-collection";
 
 const SITE_ORIGIN = "https://brandoffbuyingclub.com";
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 const BROWSER_HEADERS = {
   "User-Agent":
@@ -184,119 +179,19 @@ function formatJpyPrice(priceInCents: number): string {
   return `¥${yen.toLocaleString("en-US")}`;
 }
 
-/** products.json returns the display price string (JPY, no cents), e.g. "102258". */
-function formatJpyFromDisplay(priceStr: string | undefined): string | undefined {
-  if (!priceStr) return undefined;
-  const yen = Math.round(parseFloat(priceStr));
-  if (!Number.isFinite(yen)) return undefined;
-  return `¥${yen.toLocaleString("en-US")}`;
-}
+/** Number of collection pages to scrape per catalog URL (page 1 + page 2). */
+const PAGES_TO_SCRAPE = 2;
 
-interface ProductsJsonVariant {
-  sku?: string;
-  price?: string;
-}
-
-interface ProductsJsonImage {
-  src?: string;
-}
-
-interface ProductsJsonProduct {
-  id: number;
-  handle: string;
-  title: string;
-  variants?: ProductsJsonVariant[];
-  images?: ProductsJsonImage[];
-}
-
-export function mapProductsJson(
-  products: ProductsJsonProduct[],
-  origin: string
-): ScrapedProduct[] {
-  const mapped: ScrapedProduct[] = [];
-
-  for (const product of products) {
-    if (!product.id || !product.handle) {
-      continue;
-    }
-
-    const variant = product.variants?.[0];
-    mapped.push({
-      externalId: String(product.id),
-      title: product.title.trim(),
-      url: `${origin}/products/${product.handle}`,
-      price: formatJpyFromDisplay(variant?.price),
-      sku: variant?.sku,
-      imageUrl: product.images?.[0]?.src,
-    });
-  }
-
-  return mapped;
+function buildPageUrl(catalogUrl: string, page: number): string {
+  const url = new URL(catalogUrl);
+  url.searchParams.set("page", String(page));
+  return url.href;
 }
 
 export class BrandoffScraper implements SupplierScraper {
-  constructor(
-    private catalogUrl: string = BRANDOFF_CHANEL_BAGS_URL,
-    private options: { maxPages?: number; pageDelayMs?: number } = {}
-  ) {}
+  constructor(private catalogUrl: string = BRANDOFF_CHANEL_BAGS_URL) {}
 
-  async fetchProducts(): Promise<ScrapedProduct[]> {
-    const maxPages = Math.max(1, this.options.maxPages ?? 1);
-    const pageDelayMs = this.options.pageDelayMs ?? 0;
-
-    const merged = new Map<string, ScrapedProduct>();
-
-    for (let page = 1; page <= maxPages; page++) {
-      const products = await this.fetchPage(page);
-
-      // A page beyond the last one returns no products; stop early.
-      if (products.length === 0 && page > 1) {
-        break;
-      }
-
-      for (const product of products) {
-        if (!merged.has(product.externalId)) {
-          merged.set(product.externalId, product);
-        }
-      }
-
-      if (page < maxPages && pageDelayMs > 0) {
-        await delay(pageDelayMs);
-      }
-    }
-
-    return [...merged.values()];
-  }
-
-  private async fetchPage(page: number): Promise<ScrapedProduct[]> {
-    // Primary: Shopify products.json feed (real pagination + images).
-    const productsJsonUrl = buildProductsJsonUrl(this.catalogUrl, page);
-    if (productsJsonUrl) {
-      try {
-        const response = await axios.get(productsJsonUrl, {
-          headers: BROWSER_HEADERS,
-          timeout: 30000,
-          maxRedirects: 5,
-        });
-        const data = response.data as { products?: unknown[] };
-        const origin = new URL(this.catalogUrl).origin;
-        const products = mapProductsJson((data.products ?? []) as never[], origin);
-        console.log(`[scraper] brandoff: ${products.length} products from products.json (${productsJsonUrl})`);
-        if (products.length > 0 || page > 1) {
-          return products;
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        console.warn(`[scraper] products.json failed (${productsJsonUrl}): ${message}`);
-      }
-    }
-
-    // Fallback: parse the collection HTML page (embedded meta, then DOM).
-    return this.fetchPageFromHtml(page);
-  }
-
-  private async fetchPageFromHtml(page: number): Promise<ScrapedProduct[]> {
-    const pageUrl = buildCatalogPageUrl(this.catalogUrl, page);
+  private async fetchPage(pageUrl: string): Promise<ScrapedProduct[]> {
     const response = await axios.get(pageUrl, {
       headers: BROWSER_HEADERS,
       timeout: 30000,
@@ -307,12 +202,42 @@ export class BrandoffScraper implements SupplierScraper {
 
     const fromMeta = extractProductsFromEmbeddedMeta(html);
     if (fromMeta.length > 0) {
-      console.log(`[scraper] brandoff: ${fromMeta.length} products from embedded meta (${pageUrl})`);
       return fromMeta;
     }
 
-    const fromDom = extractProductsFromDom(html, pageUrl);
-    console.log(`[scraper] brandoff: ${fromDom.length} products from DOM fallback (${pageUrl})`);
-    return fromDom;
+    return extractProductsFromDom(html, pageUrl);
+  }
+
+  async fetchProducts(): Promise<ScrapedProduct[]> {
+    const merged: ScrapedProduct[] = [];
+    const seen = new Set<string>();
+
+    for (let page = 1; page <= PAGES_TO_SCRAPE; page++) {
+      const pageUrl = buildPageUrl(this.catalogUrl, page);
+
+      let pageProducts: ScrapedProduct[];
+      try {
+        pageProducts = await this.fetchPage(pageUrl);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "unknown error";
+        console.warn(`[scraper] brandoff: page ${page} failed (${message})`);
+        continue;
+      }
+
+      if (pageProducts.length === 0) {
+        break;
+      }
+
+      for (const product of pageProducts) {
+        if (seen.has(product.externalId)) {
+          continue;
+        }
+        seen.add(product.externalId);
+        merged.push(product);
+      }
+    }
+
+    console.log(`[scraper] brandoff: ${merged.length} products across ${PAGES_TO_SCRAPE} page(s)`);
+    return merged;
   }
 }
