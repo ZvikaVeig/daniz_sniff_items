@@ -1,0 +1,13 @@
+# Manual: shows the last server logs (Actions -> Fly logs -> Run workflow)
+name: Fly logs
+on:
+  workflow_dispatch:
+
+jobs:
+  logs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl logs -a daniz-sniff-items --no-tail | tail -150
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
