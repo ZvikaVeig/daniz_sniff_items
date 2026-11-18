@@ -2,134 +2,62 @@ import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 import { config } from "../config";
-import { BRANDOFF_CHANEL_BAGS_URL } from "../scrapers/brandoffScraper";
 
-export interface Supplier {
-  id: number;
-  name: string;
-  base_url: string;
-  scraper_type: string;
-  config_json: string | null;
-}
-
-export interface WatchItem {
-  id: number;
-  supplier_id: number;
-  keywords: string;
-  catalog_url: string;
-  is_active: number;
-  created_at: string;
-}
-
-export interface SeenProduct {
-  id: number;
-  supplier_id: number;
-  external_id: string;
-  product_url: string;
-  title: string;
-  first_seen_at: string;
-}
-
-export interface FoundProduct {
-  id: number;
-  supplier_id: number;
-  watch_item_id: number | null;
-  external_id: string;
-  title: string;
-  price: string | null;
-  image_url: string | null;
-  product_url: string;
-  watch_keywords: string | null;
-  catalog_url: string | null;
-  first_found_at: string;
-  last_matched_at: string;
-}
+// SQLite on the Fly volume. Old tables from the first sniff version (watch_items, seen_products, found_products,
+// suppliers) stay untouched - the watch words are moved once to the CRM (BuyerWatch).
 
 const dbDir = path.dirname(config.databasePath);
-if (!fs.existsSync(dbDir)) {
-  fs.mkdirSync(dbDir, { recursive: true });
-}
+if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
 
 const db = new Database(config.databasePath);
 db.pragma("journal_mode = WAL");
 
 db.exec(`
-  CREATE TABLE IF NOT EXISTS suppliers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    base_url TEXT NOT NULL,
-    scraper_type TEXT NOT NULL DEFAULT 'html',
-    config_json TEXT
-  );
-
-  CREATE TABLE IF NOT EXISTS watch_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    supplier_id INTEGER NOT NULL DEFAULT 1,
-    keywords TEXT NOT NULL,
-    catalog_url TEXT NOT NULL DEFAULT '',
-    is_active INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS seen_products (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    supplier_id INTEGER NOT NULL,
-    external_id TEXT NOT NULL,
-    product_url TEXT NOT NULL,
-    title TEXT NOT NULL,
-    first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(supplier_id, external_id)
-  );
-
   CREATE TABLE IF NOT EXISTS app_settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
 
-  CREATE TABLE IF NOT EXISTS found_products (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    supplier_id INTEGER NOT NULL,
-    watch_item_id INTEGER,
-    external_id TEXT NOT NULL,
-    title TEXT NOT NULL,
-    price TEXT,
+  -- every supplier product we already saw (so only new ones go to the CRM)
+  CREATE TABLE IF NOT EXISTS seen (
+    store TEXT NOT NULL,
+    pid TEXT NOT NULL,
+    first_seen TEXT NOT NULL,
+    PRIMARY KEY (store, pid)
+  );
+
+  -- new items with what the CRM answered (for the batch alert and the morning summary)
+  CREATE TABLE IF NOT EXISTS items (
+    store TEXT NOT NULL,
+    pid TEXT NOT NULL,
+    title TEXT,
+    url TEXT,
     image_url TEXT,
-    product_url TEXT NOT NULL,
-    watch_keywords TEXT,
-    catalog_url TEXT,
-    first_found_at TEXT NOT NULL DEFAULT (datetime('now')),
-    last_matched_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(supplier_id, external_id)
+    price REAL,
+    currency TEXT,
+    cost_ils REAL,
+    profit REAL,
+    score REAL,
+    category TEXT,
+    brand TEXT,
+    watch_hits TEXT,
+    crm_status TEXT,
+    published_at TEXT,
+    first_seen TEXT NOT NULL,
+    PRIMARY KEY (store, pid)
+  );
+
+  -- new items since the last "20 new items" message, per store
+  CREATE TABLE IF NOT EXISTS counters (
+    store TEXT PRIMARY KEY,
+    count INTEGER NOT NULL DEFAULT 0,
+    good INTEGER NOT NULL DEFAULT 0,
+    unknown INTEGER NOT NULL DEFAULT 0
   );
 `);
 
-migrateWatchItemsCatalogUrl();
-migrateFoundProductsCatalogUrl();
-
-function migrateWatchItemsCatalogUrl(): void {
-  const columns = db.prepare("PRAGMA table_info(watch_items)").all() as { name: string }[];
-  if (!columns.some((col) => col.name === "catalog_url")) {
-    db.exec(`ALTER TABLE watch_items ADD COLUMN catalog_url TEXT NOT NULL DEFAULT ''`);
-  }
-
-  db.prepare(
-    `UPDATE watch_items SET catalog_url = ?
-     WHERE catalog_url IS NULL OR catalog_url = ''`
-  ).run(BRANDOFF_CHANEL_BAGS_URL);
-}
-
-function migrateFoundProductsCatalogUrl(): void {
-  const columns = db.prepare("PRAGMA table_info(found_products)").all() as { name: string }[];
-  if (!columns.some((col) => col.name === "catalog_url")) {
-    db.exec(`ALTER TABLE found_products ADD COLUMN catalog_url TEXT`);
-  }
-}
-
 export function getAppSetting(key: string): string | undefined {
-  const row = db
-    .prepare("SELECT value FROM app_settings WHERE key = ?")
-    .get(key) as { value: string } | undefined;
+  const row = db.prepare("SELECT value FROM app_settings WHERE key = ?").get(key) as { value: string } | undefined;
   return row?.value;
 }
 
@@ -139,185 +67,76 @@ export function setAppSetting(key: string, value: string): void {
   ).run(key, value);
 }
 
-const supplierCount = db.prepare("SELECT COUNT(*) as count FROM suppliers").get() as { count: number };
-if (supplierCount.count === 0) {
+export function seenCount(store: string): number {
+  return (db.prepare("SELECT COUNT(*) AS n FROM seen WHERE store = ?").get(store) as { n: number }).n;
+}
+
+export function isSeen(store: string, pid: string): boolean {
+  return !!db.prepare("SELECT 1 FROM seen WHERE store = ? AND pid = ?").get(store, pid);
+}
+
+export function markSeen(store: string, pids: string[]): void {
+  const now = new Date().toISOString();
+  const st = db.prepare("INSERT OR IGNORE INTO seen (store, pid, first_seen) VALUES (?, ?, ?)");
+  db.transaction((list: string[]) => { for (const p of list) st.run(store, p, now); })(pids);
+}
+
+export interface ItemRow {
+  store: string;
+  pid: string;
+  title: string | null;
+  url: string | null;
+  image_url: string | null;
+  price: number | null;
+  currency: string | null;
+  cost_ils: number | null;
+  profit: number | null;
+  score: number | null;
+  category: string | null;
+  brand: string | null;
+  watch_hits: string | null;
+  crm_status: string | null;
+  published_at: string | null;
+  first_seen: string;
+}
+
+export function saveItem(r: ItemRow): void {
   db.prepare(
-    "INSERT INTO suppliers (name, base_url, scraper_type) VALUES (?, ?, ?)"
-  ).run("brandoff", BRANDOFF_CHANEL_BAGS_URL, "brandoff");
-} else {
-  // Upgrade legacy placeholder supplier from initial scaffold
+    `INSERT OR REPLACE INTO items (store, pid, title, url, image_url, price, currency, cost_ils, profit, score, category, brand,
+       watch_hits, crm_status, published_at, first_seen)
+     VALUES (@store, @pid, @title, @url, @image_url, @price, @currency, @cost_ils, @profit, @score, @category, @brand,
+       @watch_hits, @crm_status, @published_at, @first_seen)`
+  ).run(r);
+}
+
+export function itemsSince(iso: string): ItemRow[] {
+  return db.prepare("SELECT * FROM items WHERE first_seen >= ? ORDER BY first_seen").all(iso) as ItemRow[];
+}
+
+export function addToCounter(store: string, count: number, good: number, unknown: number) {
   db.prepare(
-    `UPDATE suppliers SET name = 'brandoff', base_url = ?, scraper_type = 'brandoff'
-     WHERE id = 1 AND (scraper_type = 'html' OR base_url LIKE '%example.com%')`
-  ).run(BRANDOFF_CHANEL_BAGS_URL);
+    `INSERT INTO counters (store, count, good, unknown) VALUES (?, ?, ?, ?)
+     ON CONFLICT(store) DO UPDATE SET count = count + excluded.count, good = good + excluded.good, unknown = unknown + excluded.unknown`
+  ).run(store, count, good, unknown);
+  return db.prepare("SELECT * FROM counters WHERE store = ?").get(store) as { store: string; count: number; good: number; unknown: number };
 }
 
-export function getDefaultSupplier(): Supplier {
-  const row = db.prepare("SELECT * FROM suppliers WHERE id = 1").get() as Supplier | undefined;
-  if (!row) {
-    throw new Error("Default supplier not found");
-  }
-  return row;
+export function resetCounter(store: string) {
+  db.prepare("UPDATE counters SET count = 0, good = 0, unknown = 0 WHERE store = ?").run(store);
 }
 
-export function listWatchItems(): WatchItem[] {
-  return db.prepare("SELECT * FROM watch_items ORDER BY created_at DESC").all() as WatchItem[];
+// keep the small database small
+export function prune(): void {
+  const items = new Date(Date.now() - 20 * 24 * 3600 * 1000).toISOString();
+  const seen = new Date(Date.now() - 365 * 24 * 3600 * 1000).toISOString();
+  db.prepare("DELETE FROM items WHERE first_seen < ?").run(items);
+  db.prepare("DELETE FROM seen WHERE first_seen < ?").run(seen);
 }
 
-export function getWatchItem(id: number): WatchItem | undefined {
-  return db.prepare("SELECT * FROM watch_items WHERE id = ?").get(id) as WatchItem | undefined;
-}
-
-export function createWatchItem(
-  keywords: string,
-  catalogUrl: string,
-  supplierId = 1
-): WatchItem {
-  const result = db
-    .prepare("INSERT INTO watch_items (supplier_id, keywords, catalog_url) VALUES (?, ?, ?)")
-    .run(supplierId, keywords.trim(), catalogUrl);
-  return getWatchItem(Number(result.lastInsertRowid))!;
-}
-
-export function updateWatchItem(
-  id: number,
-  updates: { keywords?: string; catalogUrl?: string; is_active?: boolean }
-): WatchItem | undefined {
-  const existing = getWatchItem(id);
-  if (!existing) return undefined;
-
-  const keywords = updates.keywords?.trim() ?? existing.keywords;
-  const catalogUrl = updates.catalogUrl ?? existing.catalog_url;
-  const isActive = updates.is_active !== undefined ? (updates.is_active ? 1 : 0) : existing.is_active;
-
-  db.prepare(
-    "UPDATE watch_items SET keywords = ?, catalog_url = ?, is_active = ? WHERE id = ?"
-  ).run(keywords, catalogUrl, isActive, id);
-  return getWatchItem(id);
-}
-
-export function deleteWatchItem(id: number): boolean {
-  const result = db.prepare("DELETE FROM watch_items WHERE id = ?").run(id);
-  return result.changes > 0;
-}
-
-export function listActiveWatchItems(): WatchItem[] {
-  return db
-    .prepare("SELECT * FROM watch_items WHERE is_active = 1 ORDER BY created_at DESC")
-    .all() as WatchItem[];
-}
-
-export interface CatalogUrlSummary {
-  catalogUrl: string;
-  itemCount: number;
-  activeCount: number;
-}
-
-export function listCatalogUrlSummaries(): CatalogUrlSummary[] {
-  const rows = db
-    .prepare(
-      `SELECT catalog_url as catalogUrl,
-              COUNT(*) as itemCount,
-              SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as activeCount
-       FROM watch_items
-       GROUP BY catalog_url
-       ORDER BY catalog_url ASC`
-    )
-    .all() as { catalogUrl: string; itemCount: number; activeCount: number }[];
-
-  return rows.map((row) => ({
-    catalogUrl: row.catalogUrl,
-    itemCount: row.itemCount,
-    activeCount: row.activeCount,
-  }));
-}
-
-export function isProductSeen(supplierId: number, externalId: string): boolean {
-  const row = db
-    .prepare("SELECT id FROM seen_products WHERE supplier_id = ? AND external_id = ?")
-    .get(supplierId, externalId);
-  return !!row;
-}
-
-export function markProductSeen(
-  supplierId: number,
-  externalId: string,
-  productUrl: string,
-  title: string
-): void {
-  db.prepare(
-    "INSERT OR IGNORE INTO seen_products (supplier_id, external_id, product_url, title) VALUES (?, ?, ?, ?)"
-  ).run(supplierId, externalId, productUrl, title);
-}
-
-export function listSeenProducts(limit = 50): SeenProduct[] {
-  return db
-    .prepare("SELECT * FROM seen_products ORDER BY first_seen_at DESC LIMIT ?")
-    .all(limit) as SeenProduct[];
-}
-
-export function upsertFoundProduct(params: {
-  supplierId: number;
-  watchItemId: number;
-  externalId: string;
-  title: string;
-  price?: string;
-  imageUrl?: string;
-  productUrl: string;
-  watchKeywords: string;
-  catalogUrl?: string;
-}): FoundProduct {
-  const existing = db
-    .prepare("SELECT * FROM found_products WHERE supplier_id = ? AND external_id = ?")
-    .get(params.supplierId, params.externalId) as FoundProduct | undefined;
-
-  if (existing) {
-    const imageUrl = params.imageUrl ?? existing.image_url ?? null;
-    db.prepare(
-      `UPDATE found_products
-       SET watch_item_id = ?, title = ?, price = ?, image_url = ?, product_url = ?,
-           watch_keywords = ?, catalog_url = ?, last_matched_at = datetime('now')
-       WHERE id = ?`
-    ).run(
-      params.watchItemId,
-      params.title,
-      params.price ?? null,
-      imageUrl,
-      params.productUrl,
-      params.watchKeywords,
-      params.catalogUrl ?? existing.catalog_url ?? null,
-      existing.id
-    );
-    return getFoundProduct(existing.id)!;
-  }
-
-  const result = db
-    .prepare(
-      `INSERT INTO found_products
-       (supplier_id, watch_item_id, external_id, title, price, image_url, product_url, watch_keywords, catalog_url)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      params.supplierId,
-      params.watchItemId,
-      params.externalId,
-      params.title,
-      params.price ?? null,
-      params.imageUrl ?? null,
-      params.productUrl,
-      params.watchKeywords,
-      params.catalogUrl ?? null
-    );
-
-  return getFoundProduct(Number(result.lastInsertRowid))!;
-}
-
-export function getFoundProduct(id: number): FoundProduct | undefined {
-  return db.prepare("SELECT * FROM found_products WHERE id = ?").get(id) as FoundProduct | undefined;
-}
-
-export function listRecentFoundProducts(limit = 10): FoundProduct[] {
-  return db
-    .prepare("SELECT * FROM found_products ORDER BY last_matched_at DESC LIMIT ?")
-    .all(limit) as FoundProduct[];
+// the watch words of the first sniff version (moved to the CRM once)
+export function legacyWatchWords(): string[] {
+  const t = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='watch_items'").get();
+  if (!t) return [];
+  const rows = db.prepare("SELECT keywords FROM watch_items WHERE is_active = 1").all() as { keywords: string }[];
+  return [...new Set(rows.map((r) => String(r.keywords || "").trim()).filter(Boolean))];
 }

@@ -1,57 +1,22 @@
-import { getAppSetting, listActiveWatchItems, listCatalogUrlSummaries, setAppSetting } from "./db";
+import { getAppSetting, setAppSetting } from "./db";
 
-const SETTINGS_KEY_PAUSED = "monitoring_paused";
-const SETTINGS_KEY_LAST_CHECK = "last_check";
-
-export interface LastCheckResult {
-  at: string;
-  productsFound: number;
-  matchesFound: number;
-  alertsSent: number;
-  catalogsChecked?: number;
-  error?: string;
-}
+const KEY_PAUSED = "monitoring_paused";
+const KEY_LAST = "last_scan";
 
 export function isMonitoringPaused(): boolean {
-  return getAppSetting(SETTINGS_KEY_PAUSED) === "1";
+  return getAppSetting(KEY_PAUSED) === "1";
 }
 
 export function setMonitoringPaused(paused: boolean): void {
-  setAppSetting(SETTINGS_KEY_PAUSED, paused ? "1" : "0");
+  setAppSetting(KEY_PAUSED, paused ? "1" : "0");
 }
 
-export function saveLastCheckResult(
-  result: Omit<LastCheckResult, "at"> & { at?: string }
-): void {
-  const payload: LastCheckResult = {
-    at: result.at ?? new Date().toISOString(),
-    productsFound: result.productsFound,
-    matchesFound: result.matchesFound,
-    alertsSent: result.alertsSent,
-    ...(result.catalogsChecked !== undefined ? { catalogsChecked: result.catalogsChecked } : {}),
-    ...(result.error ? { error: result.error } : {}),
-  };
-  setAppSetting(SETTINGS_KEY_LAST_CHECK, JSON.stringify(payload));
+export function saveLastScan(result: unknown): void {
+  setAppSetting(KEY_LAST, JSON.stringify({ at: new Date().toISOString(), result }));
 }
 
-export function getLastCheckResult(): LastCheckResult | null {
-  const raw = getAppSetting(SETTINGS_KEY_LAST_CHECK);
+export function getLastScan(): unknown {
+  const raw = getAppSetting(KEY_LAST);
   if (!raw) return null;
-
-  try {
-    return JSON.parse(raw) as LastCheckResult;
-  } catch {
-    return null;
-  }
-}
-
-export function getMonitoringStatus(cronEnabled: boolean, cronSchedule: string) {
-  return {
-    paused: isMonitoringPaused(),
-    cronEnabled,
-    cronSchedule,
-    activeWatchItems: listActiveWatchItems().length,
-    catalogUrls: listCatalogUrlSummaries(),
-    lastCheck: getLastCheckResult(),
-  };
+  try { return JSON.parse(raw); } catch { return null; }
 }

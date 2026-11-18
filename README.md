@@ -1,67 +1,42 @@
-# daniz-sniff-items
+# daniz-sniff-items - the buyer scanner ("הקניין")
 
-Monitor a supplier website for luxury bags and send Telegram alerts when matching products appear.
+A small server on Fly.io (app `daniz-sniff-items`, region fra, 256MB) that works for Danni:
 
-## Setup
+- Every 10 minutes reads the new items of the suppliers (Shopify `products.json`): Club, PURPOSE, DCT.
+  A normal run reads the first 3 pages of each store; every 2 hours a deep run reads up to 40 pages.
+- Sends every new item to the CRM (Base44 function `buyerAgent`, action `ingest`). The CRM saves it on the Buyer page
+  ("קניין"), scores it and answers with the score / expected profit / names it matched.
+- Telegram to Danni:
+  - 🔔 an item whose title has all the words of one of her names (the names are managed on the CRM Buyer page)
+  - 📦 every 20 new items of a store: how many are good (score 80+) and how many are models she never sold
+  - ☀️ 9:00 summary of yesterday: items per store, good ones, the 5 best
+- SQLite on the volume (`/app/data/sniff.db`): seen products, new items with their scores, the 20-items counters.
 
-1. Copy `.env.example` to `.env` and fill in values
-2. `npm install`
-3. `npm run dev` (development) or `npm run build && npm start` (production)
+## Deploy
 
-## Environment variables
+Push to `master` -> GitHub Actions deploys (`.github/workflows/fly-deploy.yml`, secret `FLY_API_TOKEN`).
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `API_KEY` | Yes | Secret for dashboard API calls |
-| `TELEGRAM_BOT_TOKEN` | For alerts | From @BotFather |
-| `TELEGRAM_CHAT_ID` | For alerts | Your chat or group ID |
-| `DATABASE_PATH` | No | Default: `./data/sniff.db` |
-| `CRON_SCHEDULE` | No | Default: `*/1 * * * *` (every minute) |
-| `CRON_ENABLED` | No | Default: `true` |
-| `DAILY_DIGEST_ENABLED` | No | Default: `true` — morning Telegram status |
-| `DAILY_DIGEST_CRON` | No | Default: `0 9 * * *` (9:00 daily) |
-| `DAILY_DIGEST_TIMEZONE` | No | Default: `Asia/Jerusalem` |
-| `DAILY_DIGEST_RECIPIENT_NAME` | No | Default: `Dani` — name in daily message |
+## Secrets on Fly
 
-## API
+| Name | |
+|---|---|
+| `API_KEY` | Also the key for the CRM (must equal `SNIFF_API_KEY` in the CRM). Unless `CRM_API_KEY` is set |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Telegram |
 
-All endpoints except `/health` require:
+Optional: `SCAN_CRON` (default `*/10 * * * *`), `BATCH_ALERT_SIZE` (20), `GOOD_SCORE` (80), `DAILY_DIGEST_CRON` (`0 9 * * *`),
+`DAILY_DIGEST_TOP` (5), `QUICK_PAGES` (3), `DEEP_PAGES` (40), `DEEP_EVERY_HOURS` (2), `FIRST_RUN_DAYS` (3), `CRM_FUNCTION_URL`, `CRM_BUYER_URL`.
 
-```
-Authorization: Bearer <API_KEY>
-```
+## API (header `Authorization: Bearer <API_KEY>`)
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/health` | Health check |
-| GET | `/api/watch-items` | List watch items |
-| POST | `/api/watch-items` | Add: `{ "keywords": "...", "catalogUrl": "https://..." }` |
-| PUT | `/api/watch-items/:id` | Update keywords, `catalogUrl`, or `is_active` |
-| DELETE | `/api/watch-items/:id` | Remove watch item |
-| POST | `/api/test-scrape` | Test scrape: `{ "catalogUrl": "https://..." }` |
-| POST | `/api/run-check` | Run check manually (runs even when monitoring is paused) |
-| GET | `/api/monitoring/status` | Monitoring status: paused, cron, active items, last check |
-| POST | `/api/monitoring/pause` | Pause automatic cron checks |
-| POST | `/api/monitoring/resume` | Resume automatic cron checks |
-| GET | `/api/found-products` | Last matched products (default 10; `?limit=10`) |
+| | |
+|---|---|
+| `GET /health` | no key |
+| `GET /api/probe` | can the server read each supplier |
+| `POST /api/run-check` | scan now (`{"deep": true}` for all pages) |
+| `GET /api/monitoring/status`, `POST /api/monitoring/pause`, `/resume` | |
+| `GET /api/digest-preview`, `POST /api/digest-send` | the morning message |
 
-## Deploy to Fly.io
+## Cost
 
-```bash
-fly auth login
-fly launch          # if not already created
-fly volumes create sniff_data --size 1 --region fra
-fly secrets set API_KEY=... TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=...
-fly deploy
-```
-
-## Supplier URLs
-
-Each watch item has its own `catalogUrl` (collection page to scrape).
-The dashboard (Base44) sends the URL when adding or editing a watch item.
-
-Brand Off Shopify sites use the `brandoff` scraper automatically when the hostname is `brandoffbuyingclub.com`.
-Other URLs fall back to generic HTML scraping.
-
-Example:
-`https://brandoffbuyingclub.com/collections/chanel-bags-collection`
+Fly bills the machine, not the requests: shared-cpu-1x 256MB (~2.2 dollars) + 1GB volume (0.15). Inbound traffic is free.
+Keep the machine at 256MB so the monthly bill stays under the 5 dollars Fly does not collect.

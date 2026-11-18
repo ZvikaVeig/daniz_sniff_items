@@ -11,6 +11,7 @@ primary_region = 'fra'
   min_machines_running = 1
 
 [[vm]]
+  # keep 256mb: the bill stays under the 5 dollars Fly does not collect (512mb would be ~4.4 dollars alone)
   memory = '256mb'
   cpu_kind = 'shared'
   cpus = 1
