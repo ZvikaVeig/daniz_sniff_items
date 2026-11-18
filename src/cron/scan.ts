@@ -1,7 +1,7 @@
 import { config } from "../config";
 import { STORES, Store, storeName } from "../stores";
 import {
-  addToCounter, getAppSetting, isSeen, markSeen, prune, resetCounter, saveItem, seenCount, setAppSetting,
+  addToCounter, getAppSetting, isSeen, markSeen, prune, resetCounter, saveItem, setAppSetting,
 } from "../services/db";
 import { crm } from "../services/crm";
 import { isMonitoringPaused, saveLastScan } from "../services/monitoring";
@@ -54,7 +54,8 @@ export interface StoreResult {
 }
 
 async function scanStore(store: Store, deep: boolean): Promise<StoreResult> {
-  const firstRun = seenCount(store.code) === 0;
+  // first run = until everything reached the CRM once (no alerts on it, only the last days are sent)
+  const firstRun = !getAppSetting(`initialized_${store.code}`);
   const maxPages = firstRun || deep ? config.deepPages : config.quickPages;
   const r: StoreResult = { store: store.code, ok: true, first_run: firstRun, deep, pages: 0, new_items: 0, sent: 0, created: 0, good: 0, unknown: 0, watch_alerts: 0 };
   const firstRunFrom = new Date(Date.now() - config.firstRunDays * DAY).toISOString();
@@ -113,6 +114,7 @@ async function scanStore(store: Store, deep: boolean): Promise<StoreResult> {
     markSeen(store.code, part.map((p) => String(p.id)));
     r.sent += part.length;
   }
+  if (firstRun && r.ok) setAppSetting(`initialized_${store.code}`, new Date().toISOString());
 
   // 🔔 one message per item that matched one of Danni's names
   for (const x of alerts) {
