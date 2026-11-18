@@ -5,10 +5,10 @@ A small server on Fly.io (app `daniz-sniff-items`, region fra, 256MB) that works
 - Every 10 minutes reads the new items of the suppliers (Shopify `products.json`): Club, PURPOSE, DCT.
   A normal run reads the first 3 pages of each store; every 2 hours a deep run reads up to 40 pages.
 - Sends every new item to the CRM (Base44 function `buyerAgent`, action `ingest`). The CRM saves it on the Buyer page
-  ("קניין"), scores it and answers with the score / expected profit / names it matched.
+  ("קניין") only if it is a model she already sold (or matches one of her names), scores it and answers with the score / expected profit / names it matched.
 - Telegram to Danni:
   - 🔔 an item whose title has all the words of one of her names (the names are managed on the CRM Buyer page)
-  - 📦 every 20 new items of a store: how many are good (score 80+) and how many are models she never sold
+  - 📦 every 20 new items of a store: how many are models she already sold and how many are good (score 80+)
   - ☀️ 9:00 summary of yesterday: items per store, good ones, the 5 best
 - SQLite on the volume (`/app/data/sniff.db`): seen products, new items with their scores, the 20-items counters.
 

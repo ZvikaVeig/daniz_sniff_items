@@ -49,7 +49,7 @@ export interface StoreResult {
   sent: number;
   created: number;
   good: number;
-  unknown: number;
+  known: number;
   watch_alerts: number;
 }
 
@@ -57,7 +57,7 @@ async function scanStore(store: Store, deep: boolean): Promise<StoreResult> {
   // first run = until everything reached the CRM once (no alerts on it, only the last days are sent)
   const firstRun = !getAppSetting(`initialized_${store.code}`);
   const maxPages = firstRun || deep ? config.deepPages : config.quickPages;
-  const r: StoreResult = { store: store.code, ok: true, first_run: firstRun, deep, pages: 0, new_items: 0, sent: 0, created: 0, good: 0, unknown: 0, watch_alerts: 0 };
+  const r: StoreResult = { store: store.code, ok: true, first_run: firstRun, deep, pages: 0, new_items: 0, sent: 0, created: 0, good: 0, known: 0, watch_alerts: 0 };
   const firstRunFrom = new Date(Date.now() - config.firstRunDays * DAY).toISOString();
 
   const toSend: any[] = [];
@@ -108,7 +108,7 @@ async function scanStore(store: Store, deep: boolean): Promise<StoreResult> {
       const kept = x.status === "created" || x.status === "existed";
       if (x.status === "created") r.created++;
       if (kept && x.score != null && x.score >= config.goodScore) r.good++;
-      if (kept && x.score == null) r.unknown++;
+      if (kept) r.known++; // the CRM keeps only models Danni already sold (and items matching her names)
       if (kept && hits.length && !firstRun) alerts.push(x);
     }
     markSeen(store.code, part.map((p) => String(p.id)));
@@ -125,12 +125,12 @@ async function scanStore(store: Store, deep: boolean): Promise<StoreResult> {
 
   // 📦 every 20 new items of a store (counted across runs)
   if (!firstRun && r.new_items > 0) {
-    const c = addToCounter(store.code, r.new_items, r.good, r.unknown);
+    const c = addToCounter(store.code, r.new_items, r.good, r.known);
     if (c.count >= config.batchAlertSize) {
       await sendMessage([
         `📦 עלו ${c.count} פריטים חדשים ב${storeName(store.code)}`,
+        `👜 מדגמים שכבר מכרת: ${c.known}`,
         `⭐ מוצלחים (ציון ${config.goodScore} ומעלה): ${c.good}`,
-        `❔ דגמים שעוד לא נמכרו אצלך: ${c.unknown}`,
         "",
         "כל הפריטים מחכים לך בדף הקניין:",
         config.crmBuyerPageUrl,

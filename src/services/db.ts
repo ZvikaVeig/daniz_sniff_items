@@ -56,6 +56,11 @@ db.exec(`
   );
 `);
 
+// added 18.11.2026: how many of the new items are models Danni already sold (the CRM keeps only those)
+if (!(db.prepare("PRAGMA table_info(counters)").all() as { name: string }[]).some((c) => c.name === "known")) {
+  db.exec("ALTER TABLE counters ADD COLUMN known INTEGER NOT NULL DEFAULT 0");
+}
+
 export function getAppSetting(key: string): string | undefined {
   const row = db.prepare("SELECT value FROM app_settings WHERE key = ?").get(key) as { value: string } | undefined;
   return row?.value;
@@ -113,16 +118,16 @@ export function itemsSince(iso: string): ItemRow[] {
   return db.prepare("SELECT * FROM items WHERE first_seen >= ? ORDER BY first_seen").all(iso) as ItemRow[];
 }
 
-export function addToCounter(store: string, count: number, good: number, unknown: number) {
+export function addToCounter(store: string, count: number, good: number, known: number) {
   db.prepare(
-    `INSERT INTO counters (store, count, good, unknown) VALUES (?, ?, ?, ?)
-     ON CONFLICT(store) DO UPDATE SET count = count + excluded.count, good = good + excluded.good, unknown = unknown + excluded.unknown`
-  ).run(store, count, good, unknown);
-  return db.prepare("SELECT * FROM counters WHERE store = ?").get(store) as { store: string; count: number; good: number; unknown: number };
+    `INSERT INTO counters (store, count, good, known) VALUES (?, ?, ?, ?)
+     ON CONFLICT(store) DO UPDATE SET count = count + excluded.count, good = good + excluded.good, known = known + excluded.known`
+  ).run(store, count, good, known);
+  return db.prepare("SELECT * FROM counters WHERE store = ?").get(store) as { store: string; count: number; good: number; known: number };
 }
 
 export function resetCounter(store: string) {
-  db.prepare("UPDATE counters SET count = 0, good = 0, unknown = 0 WHERE store = ?").run(store);
+  db.prepare("UPDATE counters SET count = 0, good = 0, unknown = 0, known = 0 WHERE store = ?").run(store);
 }
 
 // keep the small database small

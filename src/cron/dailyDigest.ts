@@ -28,12 +28,13 @@ export function buildDailyDigestMessage(): string {
     lines.push("אתמול לא עלו אצל הספקים פריטים חדשים. אני ממשיך לבדוק בשבילך 👀");
   } else {
     lines.push("📊 הסיכום של אתמול:");
-    lines.push(`סך הכול עלו ${rows.length} פריטים חדשים, ${good.length} מהם מוצלחים (ציון ${config.goodScore} ומעלה).`);
+    lines.push(`סך הכול עלו ${rows.length} פריטים חדשים. ${kept.length} מהם מדגמים שכבר מכרת, ו-${good.length} מוצלחים (ציון ${config.goodScore} ומעלה).`);
     for (const s of STORES) {
       const n = rows.filter((r) => r.store === s.code).length;
       if (!n) continue;
+      const k = kept.filter((r) => r.store === s.code).length;
       const g = good.filter((r) => r.store === s.code).length;
-      lines.push(`• ${s.name}: ${n} פריטים (${g} מוצלחים)`);
+      lines.push(`• ${s.name}: ${n} פריטים (${k} מדגמים שלך, ${g} מוצלחים)`);
     }
     if (watch.length) lines.push("", `🔔 ${watch.length} פריטים התאימו לשמות שאת מחפשת.`);
 
